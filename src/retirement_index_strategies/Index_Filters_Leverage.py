@@ -4,14 +4,34 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.colors as pcolors
 from plotly.subplots import make_subplots
+from datetime import date
 
 
-def run_advanced_backtest(backtest_start_date='2000-01-01', ma_days=200, use_vix_filter=True, display_chart=True, strategy_underlying='QLD', vix_threshold=30.0):
+def run_advanced_backtest(
+        backtest_start_date='2000-01-01',
+        backtest_end_date=None,
+        # index: NDX
+        ma_days=200, # stay long when index is above this MA average
+        use_vix_filter=True,
+        vix_threshold=30.0, # only go long if VIX is above this threshold
+        trading_instrument='QLD',
+        display_chart=True
+        ):
+
+    # --- Strategy Parameters Generation ---
+    args = locals()
+    excluded_keys = ['backtest_start_date', 'backtest_end_date', 'display_chart']
+    strategy_params_dict = {k: v for k, v in args.items() if k not in excluded_keys}
+    strategy_parameters = str(strategy_params_dict)
+
+    if backtest_end_date is None:
+        backtest_end_date = date.today().strftime('%Y-%m-%d')
+
     # 1. Data Fetching (25 Years)
     start_date = '1999-01-01'
-    print("Fetching data...")
+    # print("Fetching data...")
     # ^NDX = Nasdaq 100, ^VIX = Volatility Index
-    tickers = ['^NDX', '^VIX', strategy_underlying]
+    tickers = ['^NDX', '^VIX', trading_instrument]
     data = yf.download(tickers, start=start_date, progress=False)
 
     # Data Cleaning: Handle MultiIndex if present
@@ -43,24 +63,27 @@ def run_advanced_backtest(backtest_start_date='2000-01-01', ma_days=200, use_vix
 
     # 4. Return Calculation
     df['NDX_Ret'] = df['NDX'].pct_change()
-    df[f'{strategy_underlying}_Real_Ret'] = df[strategy_underlying].pct_change()
+    df[f'{trading_instrument}_Real_Ret'] = df[trading_instrument].pct_change()
 
     # Synthetic Return (e.g., for QLD Pre-2006): 2x NDX Return - approx daily expense ratio (0.95%/252)
     daily_expense = 0.0095 / 252
-    df[f'{strategy_underlying}_Synth_Ret'] = (2 * df['NDX_Ret']) - daily_expense
+    df[f'{trading_instrument}_Synth_Ret'] = (2 * df['NDX_Ret']) - daily_expense
 
     # Combine Real and Synthetic returns
-    df['Asset_Ret'] = df[f'{strategy_underlying}_Real_Ret'].combine_first(df[f'{strategy_underlying}_Synth_Ret'])
+    df['Asset_Ret'] = df[f'{trading_instrument}_Real_Ret'].combine_first(df[f'{trading_instrument}_Synth_Ret'])
 
     # Strategy Return: Signal (0 or 1) * Asset Return
     df['Strategy_Ret'] = df['Signal'] * df['Asset_Ret']
 
     # Filter for analysis period
-    res = df.loc[backtest_start_date:].copy()
+    res = df.loc[backtest_start_date:backtest_end_date].copy()
 
     # 5. Performance Metrics
     initial_capital = 100000
     n_years = (res.index[-1] - res.index[0]).days / 365.25
+
+    # Count long entries
+    long_entries = (res['Signal'].diff() == 1).sum()
 
     # Strategy Metrics
     res['Equity'] = initial_capital * (1 + res['Strategy_Ret']).cumprod()
@@ -79,16 +102,16 @@ def run_advanced_backtest(backtest_start_date='2000-01-01', ma_days=200, use_vix
     max_dd_date_ndx = res['Drawdown_NDX'].idxmin()
 
     # 6. Reporting
-    print(f"--- Backtest Report ({backtest_start_date}-Present) ---")
-    print(f"\n--- Strategy ({strategy_underlying} + Filters) ---")
-    print(f"Final Portfolio Value: ${res['Equity'].iloc[-1]:,.0f}")
-    print(f"CAGR: {cagr_strategy:.2%}")
-    print(f"Max Drawdown: {max_dd_strategy:.2%} (Occurred: {max_dd_date_strategy.date()})")
-
-    print("\n--- Nasdaq 100 (Buy & Hold) ---")
-    print(f"Final Portfolio Value: ${res['NDX_Rebased'].iloc[-1]:,.0f}")
-    print(f"CAGR: {cagr_ndx:.2%}")
-    print(f"Max Drawdown: {max_dd_ndx:.2%} (Occurred: {max_dd_date_ndx.date()})")
+    # print(f"--- Backtest Report ({backtest_start_date}-{backtest_end_date}) ---")
+    # print(f"\n--- Strategy ({trading_instrument} + Filters) ---")
+    # print(f"Final Portfolio Value: ${res['Equity'].iloc[-1]:,.0f}")
+    # print(f"CAGR: {cagr_strategy:.2%}")
+    # print(f"Max Drawdown: {max_dd_strategy:.2%} (Occurred: {max_dd_date_strategy.date()})")
+    #
+    # print("\n--- Nasdaq 100 (Buy & Hold) ---")
+    # print(f"Final Portfolio Value: ${res['NDX_Rebased'].iloc[-1]:,.0f}")
+    # print(f"CAGR: {cagr_ndx:.2%}")
+    # print(f"Max Drawdown: {max_dd_ndx:.2%} (Occurred: {max_dd_date_ndx.date()})")
 
 
     # 7. Plotting with Plotly
@@ -104,7 +127,7 @@ def run_advanced_backtest(backtest_start_date='2000-01-01', ma_days=200, use_vix
 
         # Trace 1: Portfolio Equity (Log Scale recommended for growth curves)
         fig.add_trace(
-            go.Scatter(x=res.index, y=res['Equity'], name=f"Strategy ({strategy_underlying} + Filters)",
+            go.Scatter(x=res.index, y=res['Equity'], name=f"Strategy ({trading_instrument} + Filters)",
                        line=dict(color='green', width=2)),
             secondary_y=False, row=1, col=1
         )
@@ -171,10 +194,10 @@ def run_advanced_backtest(backtest_start_date='2000-01-01', ma_days=200, use_vix
 
 
         # --- Title Generation ---
-        title_line1 = f'Growth Strategy: {strategy_underlying} with {ma_days}-SMA'
+        title_line1 = f'Growth Strategy: {trading_instrument} with {ma_days}-SMA'
         if use_vix_filter:
             title_line1 += f' & VIX < {vix_threshold} Filter'
-        title_line1 += f' ({backtest_start_date}-Present)'
+        title_line1 += f' ({backtest_start_date}-{backtest_end_date})'
 
         title_line2 = f"Strategy CAGR: {cagr_strategy:.2%}, Max DD: {max_dd_strategy:.2%} | B&H CAGR: {cagr_ndx:.2%}, Max DD: {max_dd_ndx:.2%}"
 
@@ -210,7 +233,22 @@ def run_advanced_backtest(backtest_start_date='2000-01-01', ma_days=200, use_vix
         fig.update_xaxes(tickformat="%Y", row=2, col=1)
         fig.update_yaxes(tickfont=dict(color='white'), row=2, col=1)
         fig.show()
-
+    
+    return cagr_strategy, max_dd_strategy, strategy_parameters, long_entries
 
 if __name__ == "__main__":
-    run_advanced_backtest(backtest_start_date='2012-01-01', use_vix_filter=True, display_chart=True, vix_threshold=35.0)
+    # optimal config
+    cagr, max_dd, params, long_entries = run_advanced_backtest(
+        backtest_start_date='2012-01-01',
+        backtest_end_date=None, # to present
+        ma_days=200,
+        use_vix_filter=False,
+        vix_threshold=30.0,
+        trading_instrument='QQQ',
+        display_chart=True
+    )
+    print("\n--- Function Return Values ---")
+    print(f"Strategy Parameters: {params}")
+    print(f"Returned CAGR: {cagr:.2%}")
+    print(f"Returned Max Drawdown: {max_dd:.2%}")
+    print(f"Long Entries: {long_entries}")

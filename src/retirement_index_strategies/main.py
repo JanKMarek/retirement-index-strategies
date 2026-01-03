@@ -1,25 +1,34 @@
 from retirement_index_strategies.Index_Filters_Leverage import run_advanced_backtest
 
-def main():
-    """
-    main entry point
-    """
-    print("Running backtest with 50d moving average for QLD")
-    run_advanced_backtest(
-        backtest_start_date='2012-01-01',
-        ma_days=50,
-        use_vix_filter=False,
-        display_chart=False,
-        strategy_underlying='QLD')
+def find_optimal_configuration():
 
-    print("Running backtest with 200d moving average for QLD")
-    run_advanced_backtest(
-        backtest_start_date='2012-01-01',
-        ma_days=200,
-        use_vix_filter=False,
-        display_chart=False,
-        strategy_underlying='QLD')
+    config_params = [
+        {'ma_days': 200, 'use_vix_filter': True, 'vix_threshold': 30.0, 'trading_instrument': 'QQQ'},
+        {'ma_days': 200, 'use_vix_filter': False, 'vix_threshold': 30.0, 'trading_instrument': 'QQQ'},
+        {'ma_days': 50, 'use_vix_filter': True, 'vix_threshold': 30.0, 'trading_instrument': 'QQQ'},
+        {'ma_days': 50, 'use_vix_filter': False, 'vix_threshold': 30.0, 'trading_instrument': 'QQQ'},
+
+        {'ma_days': 200, 'use_vix_filter': True, 'vix_threshold': 30.0, 'trading_instrument': 'QLD'},
+        {'ma_days': 200, 'use_vix_filter': False, 'vix_threshold': 30.0, 'trading_instrument': 'QLD'},
+        {'ma_days': 50, 'use_vix_filter': True, 'vix_threshold': 30.0, 'trading_instrument': 'QLD'},
+        {'ma_days': 50, 'use_vix_filter': False, 'vix_threshold': 30.0, 'trading_instrument': 'QLD'},
+
+        {'ma_days': 200, 'use_vix_filter': True, 'vix_threshold': 30.0, 'trading_instrument': 'TQQQ'},
+        {'ma_days': 200, 'use_vix_filter': False, 'vix_threshold': 30.0, 'trading_instrument': 'TQQQ'},
+        {'ma_days': 50, 'use_vix_filter': True, 'vix_threshold': 30.0, 'trading_instrument': 'TQQQ'},
+        {'ma_days': 50, 'use_vix_filter': False, 'vix_threshold': 30.0, 'trading_instrument': 'TQQQ'},
+    ]
+
+    for element in config_params:
+        element['backtest_start_date'] = '2012-01-01'
+        element['display_chart'] = False
+
+    print(f"CAGR, Max Drawdown, Long Entries, Strategy Parameters")
+    for params_set in config_params:
+        if (not params_set['use_vix_filter']) and params_set['ma_days'] == 200:
+            cagr, max_dd, strategy_params, long_entries = run_advanced_backtest(**params_set)
+            print(f"{cagr:.0%}, {max_dd:.0%}, {long_entries}, {strategy_params}")
 
 
 if __name__ == "__main__":
-    main()
+    find_optimal_configuration()
