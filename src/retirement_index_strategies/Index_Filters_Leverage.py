@@ -10,7 +10,8 @@ from datetime import date
 def run_advanced_backtest(
         backtest_start_date='2000-01-01',
         backtest_end_date=None,
-        # index: NDX
+        ma_index='^NDX',
+        use_ma_filter=True,
         ma_days=200, # stay long when index is above this MA average
         use_vix_filter=True,
         vix_threshold=30.0, # only go long if VIX is above this threshold
@@ -30,8 +31,8 @@ def run_advanced_backtest(
     # 1. Data Fetching (25 Years)
     start_date = '1999-01-01'
     # print("Fetching data...")
-    # ^NDX = Nasdaq 100, ^VIX = Volatility Index
-    tickers = ['^NDX', '^VIX', trading_instrument]
+    # ^NDX is needed for synthetic returns, ^VIX for volatility filter
+    tickers = list(set(['^NDX', '^VIX', trading_instrument, ma_index]))
     data = yf.download(tickers, start=start_date, progress=False)
 
     # Data Cleaning: Handle MultiIndex if present
@@ -40,21 +41,28 @@ def run_advanced_backtest(
     else:
         df = data['Close']
 
+    ma_index_name = ma_index.replace('^', '')
     # Rename columns for clarity
-    df = df.rename(columns={'^NDX': 'NDX', '^VIX': 'VIX'})
-    df = df.dropna(subset=['NDX'])  # Ensure index data exists
+    rename_map = {'^NDX': 'NDX', '^VIX': 'VIX'}
+    rename_map[ma_index] = ma_index_name
+    df = df.rename(columns=rename_map)
+    df = df.dropna(subset=[ma_index_name, 'NDX'])  # Ensure index data exists
 
     # 2. Indicator Calculation
     # Use the ma_days parameter for the moving average
     sma_col = f'SMA{ma_days}'
-    df[sma_col] = df['NDX'].rolling(window=ma_days).mean()
+    df[sma_col] = df[ma_index_name].rolling(window=ma_days).mean()
 
     # Fill VIX gaps (VIX data can be spotty in very early years, though robust post-2000)
     df['VIX'] = df['VIX'].ffill()
 
     # 3. Signal Generation
+    # Start with a signal that is always long (1)
+    df['Signal'] = 1
+    
     # Signal is true when NDX is above its SMA
-    signal_condition = (df['NDX'] > df[sma_col])
+    if use_ma_filter:
+        signal_condition = (df[ma_index_name] > df[sma_col])
     if use_vix_filter:
         # If the VIX filter is used, the signal is only true if VIX is also below the threshold
         signal_condition &= (df['VIX'] < vix_threshold)
@@ -63,6 +71,7 @@ def run_advanced_backtest(
 
     # 4. Return Calculation
     df['NDX_Ret'] = df['NDX'].pct_change()
+    df[f'{ma_index_name}_Ret'] = df[ma_index_name].pct_change()
     df[f'{trading_instrument}_Real_Ret'] = df[trading_instrument].pct_change()
 
     # Synthetic Return (e.g., for QLD Pre-2006): 2x NDX Return - approx daily expense ratio (0.95%/252)
@@ -93,13 +102,13 @@ def run_advanced_backtest(
     max_dd_strategy = res['Drawdown_Strategy'].min()
     max_dd_date_strategy = res['Drawdown_Strategy'].idxmin()
 
-    # Nasdaq 100 (Buy & Hold) Metrics
-    res['NDX_Rebased'] = initial_capital * (1 + res['NDX_Ret']).cumprod()
-    cagr_ndx = (res['NDX_Rebased'].iloc[-1] / initial_capital) ** (1 / n_years) - 1
-    res['Peak_NDX'] = res['NDX_Rebased'].cummax()
-    res['Drawdown_NDX'] = (res['NDX_Rebased'] - res['Peak_NDX']) / res['Peak_NDX']
-    max_dd_ndx = res['Drawdown_NDX'].min()
-    max_dd_date_ndx = res['Drawdown_NDX'].idxmin()
+    # Benchmark (Buy & Hold) Metrics
+    res[f'{ma_index_name}_Rebased'] = initial_capital * (1 + res[f'{ma_index_name}_Ret']).cumprod()
+    cagr_benchmark = (res[f'{ma_index_name}_Rebased'].iloc[-1] / initial_capital) ** (1 / n_years) - 1
+    res[f'Peak_{ma_index_name}'] = res[f'{ma_index_name}_Rebased'].cummax()
+    res[f'Drawdown_{ma_index_name}'] = (res[f'{ma_index_name}_Rebased'] - res[f'Peak_{ma_index_name}']) / res[f'Peak_{ma_index_name}']
+    max_dd_benchmark = res[f'Drawdown_{ma_index_name}'].min()
+    max_dd_date_benchmark = res[f'Drawdown_{ma_index_name}'].idxmin()
 
     # 6. Reporting
     # print(f"--- Backtest Report ({backtest_start_date}-{backtest_end_date}) ---")
@@ -108,10 +117,10 @@ def run_advanced_backtest(
     # print(f"CAGR: {cagr_strategy:.2%}")
     # print(f"Max Drawdown: {max_dd_strategy:.2%} (Occurred: {max_dd_date_strategy.date()})")
     #
-    # print("\n--- Nasdaq 100 (Buy & Hold) ---")
-    # print(f"Final Portfolio Value: ${res['NDX_Rebased'].iloc[-1]:,.0f}")
-    # print(f"CAGR: {cagr_ndx:.2%}")
-    # print(f"Max Drawdown: {max_dd_ndx:.2%} (Occurred: {max_dd_date_ndx.date()})")
+    # print(f"\n--- {ma_index_name} (Buy & Hold) ---")
+    # print(f"Final Portfolio Value: ${res[f'{ma_index_name}_Rebased'].iloc[-1]:,.0f}")
+    # print(f"CAGR: {cagr_benchmark:.2%}")
+    # print(f"Max Drawdown: {max_dd_benchmark:.2%} (Occurred: {max_dd_date_benchmark.date()})")
 
 
     # 7. Plotting with Plotly
@@ -132,23 +141,23 @@ def run_advanced_backtest(
             secondary_y=False, row=1, col=1
         )
 
-        # Trace 2: Nasdaq 100 Index (Benchmark)
+        # Trace 2: Benchmark Index
         fig.add_trace(
-            go.Scatter(x=res.index, y=res['NDX_Rebased'], name="Nasdaq 100 (Buy & Hold)",
+            go.Scatter(x=res.index, y=res[f'{ma_index_name}_Rebased'], name=f"{ma_index_name} (Buy & Hold)",
                        line=dict(color='gray', dash='dot')),
             secondary_y=False, row=1, col=1
         )
 
         # Trace 3: SMA (Secondary Axis)
         fig.add_trace(
-            go.Scatter(x=res.index, y=res[sma_col], name=f"NDX {ma_days}-day SMA",
+            go.Scatter(x=res.index, y=res[sma_col], name=f"{ma_index_name} {ma_days}-day SMA",
                        line=dict(color='orange', width=1)),
             secondary_y=True, row=1, col=1
         )
 
-        # Trace 4: NDX Price (Secondary Axis) - for context
+        # Trace 4: Index Price (Secondary Axis) - for context
         fig.add_trace(
-            go.Scatter(x=res.index, y=res['NDX'], name="NDX Price",
+            go.Scatter(x=res.index, y=res[ma_index_name], name=f"{ma_index_name} Price",
                        line=dict(color='cyan', width=1, dash='dot'), opacity=0.5),
             secondary_y=True, row=1, col=1
         )
@@ -194,17 +203,19 @@ def run_advanced_backtest(
 
 
         # --- Title Generation ---
-        title_line1 = f'Growth Strategy: {trading_instrument} with {ma_days}-SMA'
+        title_line1 = f'Growth Strategy: {trading_instrument}'
+        if use_ma_filter:
+            title_line1 += f' with {ma_index_name} {ma_days}-SMA'
         if use_vix_filter:
             title_line1 += f' & VIX < {vix_threshold} Filter'
         title_line1 += f' ({backtest_start_date}-{backtest_end_date})'
 
-        title_line2 = f"Strategy CAGR: {cagr_strategy:.2%}, Max DD: {max_dd_strategy:.2%} | B&H CAGR: {cagr_ndx:.2%}, Max DD: {max_dd_ndx:.2%}"
+        title_line2 = f"Strategy CAGR: {cagr_strategy:.2%}, Max DD: {max_dd_strategy:.2%} | B&H CAGR: {cagr_benchmark:.2%}, Max DD: {max_dd_benchmark:.2%}"
 
         fig.update_layout(
             title_text=f"{title_line1}<br><sup>{title_line2}</sup>",
             yaxis_title='Portfolio Value ($)',
-            yaxis2_title='NDX Price',
+            yaxis2_title=f'{ma_index_name} Price',
             yaxis_type="log",
             yaxis2_type="log",
             template="plotly_dark",
@@ -241,6 +252,8 @@ if __name__ == "__main__":
     cagr, max_dd, params, long_entries = run_advanced_backtest(
         backtest_start_date='2012-01-01',
         backtest_end_date=None, # to present
+        ma_index='^NDX',
+        use_ma_filter=True,
         ma_days=200,
         use_vix_filter=False,
         vix_threshold=30.0,
