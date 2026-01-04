@@ -57,15 +57,16 @@ def run_advanced_backtest(
     df['VIX'] = df['VIX'].ffill()
 
     # 3. Signal Generation
-    # Start with a signal that is always long (1)
-    df['Signal'] = 1
-    
-    # Signal is true when NDX is above its SMA
+    # Start with a signal that is always long (True), then apply filters.
+    signal_condition = pd.Series(True, index=df.index)
+
     if use_ma_filter:
-        signal_condition = (df[ma_index_name] > df[sma_col])
+        signal_condition = signal_condition & (df[ma_index_name] > df[sma_col])
+
     if use_vix_filter:
-        # If the VIX filter is used, the signal is only true if VIX is also below the threshold
-        signal_condition &= (df['VIX'] < vix_threshold)
+        signal_condition = signal_condition & (df['VIX'] < vix_threshold)
+
+    # If no filters are active, signal will be all 1s (always long).
     df['Signal'] = signal_condition.astype(int).shift(1) # Shift to prevent lookahead bias
 
 
