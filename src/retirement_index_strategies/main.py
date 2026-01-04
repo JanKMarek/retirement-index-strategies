@@ -6,7 +6,8 @@ def buy_and_hold():
         'backtest_start_date': '2007-01-01',
         'use_ma_filter': False,
         'use_vix_filter': False,
-        'trading_instrument': 'QQQ'
+        'trading_instrument': 'QQQ',
+        'display_chart': False
     }
 
     cagr, max_dd, strategy_params, long_entries = run_backtest(**config_params)
@@ -45,7 +46,7 @@ def find_optimal_configuration():
 
 def main():
     buy_and_hold()
-    find_optimal_configuration()
+    # find_optimal_configuration()
 
 
 if __name__ == "__main__":
