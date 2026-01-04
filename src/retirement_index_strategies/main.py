@@ -1,4 +1,4 @@
-from retirement_index_strategies.Index_Filters_Leverage import run_advanced_backtest
+from retirement_index_strategies.Index_Filters_Leverage import run_backtest
 
 def buy_and_hold():
 
@@ -9,7 +9,7 @@ def buy_and_hold():
         'trading_instrument': 'QQQ'
     }
 
-    cagr, max_dd, strategy_params, long_entries = run_advanced_backtest(**config_params)
+    cagr, max_dd, strategy_params, long_entries = run_backtest(**config_params)
     print(f"{cagr:.0%}, {max_dd:.0%}, {long_entries}, {strategy_params}")
 
 
@@ -39,7 +39,7 @@ def find_optimal_configuration():
     print(f"CAGR, Max Drawdown, Long Entries, Strategy Parameters")
     for params_set in config_params:
         if (not params_set['use_vix_filter']) and params_set['ma_days'] == 200:
-            cagr, max_dd, strategy_params, long_entries = run_advanced_backtest(**params_set)
+            cagr, max_dd, strategy_params, long_entries = run_backtest(**params_set)
             print(f"{cagr:.0%}, {max_dd:.0%}, {long_entries}, {strategy_params}")
 
 
