@@ -43,8 +43,10 @@ def find_optimal_configuration():
             print(f"{cagr:.0%}, {max_dd:.0%}, {long_entries}, {strategy_params}")
 
 
-if __name__ == "__main__":
-
+def main():
     buy_and_hold()
-
     find_optimal_configuration()
+
+
+if __name__ == "__main__":
+    main()

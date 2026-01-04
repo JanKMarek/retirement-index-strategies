@@ -1,28 +1,27 @@
 # Retirement Index Strategies
 
-This project implements various retirement index strategies.
+This project explores index-based retirement index strategies.
 
+## Workflows
 
-
-
-
-
-
-
-## Installation
-
-```bash
+### Install
+```
 uv sync
 ```
 
-## Usage
+### Keep local environment and Databricks in synch 
+- uv add <package>
+- uv export --format requirements.txt > requirements.txt
+- git add, commit, push to GitHub
+- Databricks: pull changes in the Git Folder
+- %pip install -r requirements.txt
 
+### Usage
 ```bash
 uv run retirement-index-strategies
 ```
 
-## Testing
-
+### Testing
 ```bash
 uv run pytest
 ```
