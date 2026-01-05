@@ -10,6 +10,9 @@ from datetime import date
 import dash
 from dash import dcc, html, Input, Output, State, dash_table
 
+MONTH_MAP = {1: 'January', 2: 'February', 3: 'March', 4: 'April', 5: 'May', 6: 'June', 7: 'July', 8: 'August',
+             9: 'September', 10: 'October', 11: 'November', 12: 'December', 'Annual': 'Annual'}
+
 
 def run_backtest(
         backtest_start_date='2000-01-01',
@@ -66,6 +69,20 @@ def execute_strategy(backtest_end_date: str | Any, backtest_start_date: str, ma_
     rename_map = {'^NDX': 'NDX', '^VIX': 'VIX'}
     rename_map[ma_index] = ma_index_name
     df = df.rename(columns=rename_map)
+
+    # Add OHLC data for ma_index for charting
+    if isinstance(data.columns, pd.MultiIndex):
+        df[f'{ma_index_name}_Open'] = data['Open'][ma_index]
+        df[f'{ma_index_name}_High'] = data['High'][ma_index]
+        df[f'{ma_index_name}_Low'] = data['Low'][ma_index]
+        df[f'{ma_index_name}_Close'] = data['Close'][ma_index]
+    else:
+        # This case is unlikely but good to handle. Assumes `data` is for `ma_index`.
+        df[f'{ma_index_name}_Open'] = data['Open']
+        df[f'{ma_index_name}_High'] = data['High']
+        df[f'{ma_index_name}_Low'] = data['Low']
+        df[f'{ma_index_name}_Close'] = data['Close']
+
     df = df.dropna(subset=[ma_index_name, 'NDX'])  # Ensure index data exists
 
     # 2. Indicator Calculation
@@ -124,14 +141,16 @@ def execute_strategy(backtest_end_date: str | Any, backtest_start_date: str, ma_
 
     return cagr_strategy, long_entries, ma_index_name, max_dd_strategy, max_dd_date, res, sma_col
 
+
 def display_with_plotly(backtest_end_date: str | Any, backtest_start_date: str, cagr_strategy: str,
                         ma_days: int, ma_index_name: float | int | Any,
                         max_dd_strategy: float | int | Any, res, sma_col, trading_instrument: str, use_ma_filter: bool,
                         use_vix_filter: bool, vix_threshold: float):
-    fig = create_plotly_figure_2(backtest_end_date, backtest_start_date, cagr_strategy, ma_days,
+    fig = create_plotly_figure(backtest_end_date, backtest_start_date, cagr_strategy, ma_days,
                                  ma_index_name, max_dd_strategy, res, sma_col, trading_instrument,
                                  use_ma_filter, use_vix_filter, vix_threshold)
     fig.show()
+
 
 def create_plotly_figure(backtest_end_date: str | Any, backtest_start_date: str, cagr_strategy: str,
                            ma_days: int, ma_index_name: float | int | Any,
@@ -172,6 +191,7 @@ def create_plotly_figure(backtest_end_date: str | Any, backtest_start_date: str,
 
     return fig
 
+
 def add_chart(fig, res,
                  backtest_start_date, backtest_end_date, use_ma_filter, use_vix_filter, vix_threshold,
                  sma_col, ma_index_name, ma_days,
@@ -179,7 +199,7 @@ def add_chart(fig, res,
 
     # Trace 1: Portfolio Equity (Log Scale recommended for growth curves)
     fig.add_trace(
-        go.Scatter(x=res.index, y=res['Equity'], name=f"Strtegy ({trading_instrument} + Filters)",
+        go.Scatter(x=res.index, y=res['Equity'], name=f"Strategy ({trading_instrument} + Filters)",
                    line=dict(color='green', width=2)),
         secondary_y=False, row=1, col=1
     )
@@ -187,14 +207,19 @@ def add_chart(fig, res,
     # Trace 2: SMA (Secondary Axis)
     fig.add_trace(
         go.Scatter(x=res.index, y=res[sma_col], name=f"{ma_index_name} {ma_days}-day SMA",
-                   line=dict(color='orange', width=1)),
+                   line=dict(color='red', width=1)),
         secondary_y=True, row=1, col=1
     )
 
     # Trace 3: Index Price (Secondary Axis) - for context
     fig.add_trace(
-        go.Scatter(x=res.index, y=res[ma_index_name], name=f"{ma_index_name} Price",
-                   line=dict(color='cyan', width=1, dash='dot'), opacity=0.5),
+        go.Ohlc(x=res.index,
+                open=res[f'{ma_index_name}_Open'],
+                high=res[f'{ma_index_name}_High'],
+                low=res[f'{ma_index_name}_Low'],
+                close=res[f'{ma_index_name}_Close'],
+                name=f"{ma_index_name} Price",
+                opacity=0.5),
         secondary_y=True, row=1, col=1
     )
 
@@ -214,30 +239,33 @@ def add_chart(fig, res,
         yaxis2_title=f'{ma_index_name} Price',
         yaxis_type="log",
         yaxis2_type="log",
-        template="plotly_dark",
+        template="plotly_white",
         hovermode="x unified",
+        margin=dict(l=20, r=20, t=50, b=20),
 
         # Set default font color to black for dropdown items, then override for other elements
         font_color="black",
-        title_font_color="white",
-        legend_font_color="white",
-        xaxis_title_font_color="white",
-        yaxis_title_font_color="white",
-        yaxis2_title_font_color="white",
-        xaxis_tickfont_color="white",
-        yaxis_tickfont_color="white",
-        yaxis2_tickfont_color="white",
+        title_font_color="black",
+        legend_font_color="black",
+        xaxis_title_font_color="black",
+        yaxis_title_font_color="black",
+        yaxis2_title_font_color="black",
+        xaxis_tickfont_color="black",
+        yaxis_tickfont_color="black",
+        yaxis2_tickfont_color="black",
 
         legend=dict(
             x=0.01,
             y=0.99,
             xanchor='left',
             yanchor='top'
-        )
+        ),
+        xaxis_rangeslider_visible=False
     )
-    fig.update_annotations(font_color='white')
-    fig.update_xaxes(tickfont=dict(color='white'), row=1, col=1)
+    fig.update_annotations(font_color='black')
+    fig.update_xaxes(tickfont=dict(color='black'), row=1, col=1)
     return fig
+
 
 def get_returns_pivot_df(res):
     # --- Table Calculation ---
@@ -260,9 +288,7 @@ def get_returns_pivot_df(res):
     # Format numeric returns to string for display
     returns_pivot = returns_pivot_numeric.applymap(lambda x: f'{x:.2%}' if pd.notna(x) else '')
 
-    month_map = {1: 'January', 2: 'February', 3: 'March', 4: 'April', 5: 'May', 6: 'June', 7: 'July', 8: 'August',
-                 9: 'September', 10: 'October', 11: 'November', 12: 'December', 'Annual': 'Annual'}
-    returns_pivot.index = returns_pivot.index.map(month_map)
+    returns_pivot.index = returns_pivot.index.map(MONTH_MAP)
 
     month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
                    'November', 'December', 'Annual']
@@ -272,7 +298,6 @@ def get_returns_pivot_df(res):
     returns_pivot = returns_pivot.reset_index().rename(columns={'index': 'Month'})
 
     return returns_pivot
-
 
 
 def display_with_dash(backtest_end_date: str | Any, backtest_start_date: str, cagr_strategy: str,
@@ -305,28 +330,62 @@ def display_with_dash(backtest_end_date: str | Any, backtest_start_date: str, ca
     ])
 
     @app.callback(
+        Output('main-chart', 'figure'),
         Output('returns-table', 'style_data_conditional'),
-        Input('returns-table', 'active_cell')
+        Input('returns-table', 'active_cell'),
+        State('main-chart', 'figure'),
+        State('returns-table', 'data')
     )
-    def highlight_table_cell(active_cell):
+    def update_on_cell_click(active_cell, current_figure, table_data):
         if not active_cell:
-            return []
+            return current_figure, []
 
         row = active_cell['row']
         col_id = active_cell['column_id']
+        month_name = table_data[row]['Month']
 
-        # Don't highlight the 'Month' column
-        if col_id == 'Month':
-            return []
+        # Style for highlighted cell
+        style = []
+        if col_id != 'Month':
+            style.append({
+                'if': {'row_index': row, 'column_id': col_id},
+                'backgroundColor': 'yellow',
+                'color': 'black'
+            })
 
-        return [{
-            'if': {
-                'row_index': row,
-                'column_id': col_id
-            },
-            'backgroundColor': 'yellow',
-            'color': 'black'
-        }]
+        # Update chart with vertical lines
+        if col_id == 'Month' or month_name == 'Annual':
+            if 'shapes' in current_figure['layout']:
+                current_figure['layout']['shapes'] = []
+            return current_figure, style
+
+        try:
+            year = int(col_id)
+            month_map_inv = {v: k for k, v in MONTH_MAP.items() if isinstance(k, int)}
+            month = month_map_inv[month_name]
+
+            start_of_month = f"{year}-{month:02d}-01"
+            end_of_month = (pd.to_datetime(start_of_month) + pd.offsets.MonthEnd(1)).strftime('%Y-%m-%d')
+
+            shapes = [
+                {
+                    'type': 'line', 'xref': 'x', 'yref': 'paper',
+                    'x0': start_of_month, 'y0': 0, 'x1': start_of_month, 'y1': 1,
+                    'line': {'color': 'RoyalBlue', 'width': 2, 'dash': 'dot'}
+                },
+                {
+                    'type': 'line', 'xref': 'x', 'yref': 'paper',
+                    'x0': end_of_month, 'y0': 0, 'x1': end_of_month, 'y1': 1,
+                    'line': {'color': 'RoyalBlue', 'width': 2, 'dash': 'dot'}
+                }
+            ]
+            current_figure['layout']['shapes'] = shapes
+        except (ValueError, KeyError):
+            if 'shapes' in current_figure['layout']:
+                current_figure['layout']['shapes'] = []
+
+
+        return current_figure, style
 
     app.run(debug=True)
 
@@ -347,7 +406,6 @@ def create_dash_figure(backtest_end_date: str | Any, backtest_start_date: str, c
               cagr_strategy, max_dd_strategy, trading_instrument)
 
     return fig
-
 
 
 if __name__ == "__main__":
