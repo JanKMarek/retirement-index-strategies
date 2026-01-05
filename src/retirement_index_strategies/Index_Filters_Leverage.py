@@ -7,19 +7,21 @@ import plotly.graph_objects as go
 import plotly.colors as pcolors
 from plotly.subplots import make_subplots
 from datetime import date
+import dash
+from dash import dcc, html, Input, Output, State, dash_table
+
 
 def run_backtest(
         backtest_start_date='2000-01-01',
         backtest_end_date=None,
         use_ma_filter=True,
         ma_index='^NDX',
-        ma_days=200, # stay long when index is above this MA average
+        ma_days=200,  # stay long when index is above this MA average
         use_vix_filter=True,
-        vix_threshold=30.0, # only go long if VIX is above this threshold
+        vix_threshold=30.0,  # only go long if VIX is above this threshold
         trading_instrument='QLD',
-        display_chart='plotly' # can be False (no chart) or 'plotly'
-        ):
-
+        display_chart='plotly'  # can be False (no chart), 'plotly', or 'dash'
+):
     # --- Strategy Parameters Generation ---
     args = locals()
     excluded_keys = ['backtest_start_date', 'backtest_end_date', 'display_chart']
@@ -37,8 +39,13 @@ def run_backtest(
         display_with_plotly(backtest_end_date, backtest_start_date, cagr_strategy, ma_days,
                             ma_index_name, max_dd_strategy, res, sma_col, trading_instrument,
                             use_ma_filter, use_vix_filter, vix_threshold)
+    elif display_chart == 'dash':
+        display_with_dash(backtest_end_date, backtest_start_date, cagr_strategy, ma_days,
+                          ma_index_name, max_dd_strategy, res, sma_col, trading_instrument,
+                          use_ma_filter, use_vix_filter, vix_threshold)
 
     return cagr_strategy, max_dd_strategy, max_dd_date, strategy_parameters, long_entries
+
 
 def execute_strategy(backtest_end_date: str | Any, backtest_start_date: str, ma_days: int, ma_index: str,
                      trading_instrument: str, use_ma_filter: bool, use_vix_filter: bool, vix_threshold: float):
@@ -117,25 +124,62 @@ def execute_strategy(backtest_end_date: str | Any, backtest_start_date: str, ma_
 
     return cagr_strategy, long_entries, ma_index_name, max_dd_strategy, max_dd_date, res, sma_col
 
-
-
-
 def display_with_plotly(backtest_end_date: str | Any, backtest_start_date: str, cagr_strategy: str,
                         ma_days: int, ma_index_name: float | int | Any,
                         max_dd_strategy: float | int | Any, res, sma_col, trading_instrument: str, use_ma_filter: bool,
                         use_vix_filter: bool, vix_threshold: float):
+    fig = create_plotly_figure_2(backtest_end_date, backtest_start_date, cagr_strategy, ma_days,
+                                 ma_index_name, max_dd_strategy, res, sma_col, trading_instrument,
+                                 use_ma_filter, use_vix_filter, vix_threshold)
+    fig.show()
+
+def create_plotly_figure(backtest_end_date: str | Any, backtest_start_date: str, cagr_strategy: str,
+                           ma_days: int, ma_index_name: float | int | Any,
+                           max_dd_strategy: float | int | Any, res, sma_col, trading_instrument: str, use_ma_filter: bool,
+                           use_vix_filter: bool, vix_threshold: float):
+
     fig = make_subplots(
         rows=2, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.1,
-        row_heights=[0.4, 0.6],
+        row_heights=[0.5, 0.5],
         specs=[[{"secondary_y": True}], [{"type": "table"}]],
         subplot_titles=("", "Strategy Monthly Returns")
     )
 
+    add_chart(fig, res,
+                 backtest_start_date, backtest_end_date, use_ma_filter, use_vix_filter, vix_threshold,
+                 sma_col, ma_index_name, ma_days,
+                 cagr_strategy, max_dd_strategy, trading_instrument)
+
+    returns_pivot = get_returns_pivot_df(res)
+
+    # Trace 4: Monthly Returns Table
+    fig.add_trace(
+        go.Table(
+            header=dict(values=['Month'] + list(returns_pivot.columns),
+                        fill_color='paleturquoise',
+                        align='left'),
+            cells=dict(values=[returns_pivot.index] + [returns_pivot[col] for col in returns_pivot.columns],
+                       fill_color='white',
+                       align='left')
+        ),
+        row=2, col=1
+    )
+
+    fig.update_xaxes(tickformat="%Y", row=2, col=1)
+    fig.update_yaxes(tickfont=dict(color='white'), row=2, col=1)
+
+    return fig
+
+def add_chart(fig, res,
+                 backtest_start_date, backtest_end_date, use_ma_filter, use_vix_filter, vix_threshold,
+                 sma_col, ma_index_name, ma_days,
+                 cagr_strategy, max_dd_strategy, trading_instrument):
+
     # Trace 1: Portfolio Equity (Log Scale recommended for growth curves)
     fig.add_trace(
-        go.Scatter(x=res.index, y=res['Equity'], name=f"Strategy ({trading_instrument} + Filters)",
+        go.Scatter(x=res.index, y=res['Equity'], name=f"Strtegy ({trading_instrument} + Filters)",
                    line=dict(color='green', width=2)),
         secondary_y=False, row=1, col=1
     )
@@ -152,47 +196,6 @@ def display_with_plotly(backtest_end_date: str | Any, backtest_start_date: str, 
         go.Scatter(x=res.index, y=res[ma_index_name], name=f"{ma_index_name} Price",
                    line=dict(color='cyan', width=1, dash='dot'), opacity=0.5),
         secondary_y=True, row=1, col=1
-    )
-
-    # --- Table Calculation ---
-    monthly_returns = res['Strategy_Ret'].resample('M').apply(lambda x: (1 + x).prod() - 1)
-    monthly_returns_df = pd.DataFrame({
-        'Year': monthly_returns.index.year,
-        'Month': monthly_returns.index.month,
-        'Return': monthly_returns.values
-    })
-    returns_pivot = monthly_returns_df.pivot(index='Month', columns='Year', values='Return')
-
-    # Calculate Annual Returns
-    annual_returns = res['Strategy_Ret'].resample('Y').apply(lambda x: (1 + x).prod() - 1)
-    annual_return_row = pd.DataFrame(annual_returns.values.reshape(1, -1), index=['Annual'],
-                                     columns=returns_pivot.columns)
-
-    # Combine and keep numeric values for coloring
-    returns_pivot_numeric = pd.concat([returns_pivot, annual_return_row])
-
-    # Format numeric returns to string for display
-    returns_pivot = returns_pivot_numeric.applymap(lambda x: f'{x:.2%}' if pd.notna(x) else '')
-
-    month_map = {1: 'January', 2: 'February', 3: 'March', 4: 'April', 5: 'May', 6: 'June', 7: 'July', 8: 'August',
-                 9: 'September', 10: 'October', 11: 'November', 12: 'December', 'Annual': 'Annual'}
-    returns_pivot.index = returns_pivot.index.map(month_map)
-
-    month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
-                   'November', 'December', 'Annual']
-    returns_pivot = returns_pivot.reindex(month_order)
-
-    # Trace 4: Monthly Returns Table
-    fig.add_trace(
-        go.Table(
-            header=dict(values=['Month'] + list(returns_pivot.columns),
-                        fill_color='paleturquoise',
-                        align='left'),
-            cells=dict(values=[returns_pivot.index] + [returns_pivot[col] for col in returns_pivot.columns],
-                       fill_color='white',
-                       align='left')
-        ),
-        row=2, col=1
     )
 
     # --- Title Generation ---
@@ -234,10 +237,116 @@ def display_with_plotly(backtest_end_date: str | Any, backtest_start_date: str, 
     )
     fig.update_annotations(font_color='white')
     fig.update_xaxes(tickfont=dict(color='white'), row=1, col=1)
-    fig.update_xaxes(tickformat="%Y", row=2, col=1)
-    fig.update_yaxes(tickfont=dict(color='white'), row=2, col=1)
-    fig.show()
+    return fig
 
+def get_returns_pivot_df(res):
+    # --- Table Calculation ---
+    monthly_returns = res['Strategy_Ret'].resample('M').apply(lambda x: (1 + x).prod() - 1)
+    monthly_returns_df = pd.DataFrame({
+        'Year': monthly_returns.index.year,
+        'Month': monthly_returns.index.month,
+        'Return': monthly_returns.values
+    })
+    returns_pivot = monthly_returns_df.pivot(index='Month', columns='Year', values='Return')
+
+    # Calculate Annual Returns
+    annual_returns = res['Strategy_Ret'].resample('Y').apply(lambda x: (1 + x).prod() - 1)
+    annual_return_row = pd.DataFrame(annual_returns.values.reshape(1, -1), index=['Annual'],
+                                     columns=returns_pivot.columns)
+
+    # Combine and keep numeric values for coloring
+    returns_pivot_numeric = pd.concat([returns_pivot, annual_return_row])
+
+    # Format numeric returns to string for display
+    returns_pivot = returns_pivot_numeric.applymap(lambda x: f'{x:.2%}' if pd.notna(x) else '')
+
+    month_map = {1: 'January', 2: 'February', 3: 'March', 4: 'April', 5: 'May', 6: 'June', 7: 'July', 8: 'August',
+                 9: 'September', 10: 'October', 11: 'November', 12: 'December', 'Annual': 'Annual'}
+    returns_pivot.index = returns_pivot.index.map(month_map)
+
+    month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
+                   'November', 'December', 'Annual']
+    returns_pivot = returns_pivot.reindex(month_order)
+
+    # For dash_table, we need to reset index
+    returns_pivot = returns_pivot.reset_index().rename(columns={'index': 'Month'})
+
+    return returns_pivot
+
+
+
+def display_with_dash(backtest_end_date: str | Any, backtest_start_date: str, cagr_strategy: str,
+                      ma_days: int, ma_index_name: float | int | Any,
+                      max_dd_strategy: float | int | Any, res, sma_col, trading_instrument: str, use_ma_filter: bool,
+                      use_vix_filter: bool, vix_threshold: float):
+
+    chart_fig = create_dash_figure(backtest_end_date, backtest_start_date, cagr_strategy, ma_days,
+                                   ma_index_name, max_dd_strategy, res, sma_col, trading_instrument,
+                                   use_ma_filter, use_vix_filter, vix_threshold)
+
+    returns_pivot_df = get_returns_pivot_df(res)
+
+    app = dash.Dash(__name__)
+
+    app.layout = html.Div([
+        dcc.Graph(id='main-chart', figure=chart_fig, style={'height': '50vh'}),
+        html.H4("Strategy Monthly Returns", style={'color': 'white', 'padding-top': '20px'}),
+        dash_table.DataTable(
+            id='returns-table',
+            columns=[{"name": str(i), "id": str(i)} for i in returns_pivot_df.columns],
+            data=returns_pivot_df.to_dict('records'),
+            style_cell={'textAlign': 'left', 'backgroundColor': 'rgb(50, 50, 50)', 'color': 'white'},
+            style_header={
+                'backgroundColor': 'rgb(30, 30, 30)',
+                'fontWeight': 'bold'
+            },
+            style_data_conditional=[]
+        )
+    ])
+
+    @app.callback(
+        Output('returns-table', 'style_data_conditional'),
+        Input('returns-table', 'active_cell')
+    )
+    def highlight_table_cell(active_cell):
+        if not active_cell:
+            return []
+
+        row = active_cell['row']
+        col_id = active_cell['column_id']
+
+        # Don't highlight the 'Month' column
+        if col_id == 'Month':
+            return []
+
+        return [{
+            'if': {
+                'row_index': row,
+                'column_id': col_id
+            },
+            'backgroundColor': 'yellow',
+            'color': 'black'
+        }]
+
+    app.run(debug=True)
+
+
+def create_dash_figure(backtest_end_date: str | Any, backtest_start_date: str, cagr_strategy: str,
+                       ma_days: int, ma_index_name: float | int | Any,
+                       max_dd_strategy: float | int | Any, res, sma_col, trading_instrument: str, use_ma_filter: bool,
+                       use_vix_filter: bool, vix_threshold: float):
+
+    fig = make_subplots(
+        rows=1, cols=1,
+        specs=[[{"secondary_y": True}]],
+    )
+
+    add_chart(fig, res,
+              backtest_start_date, backtest_end_date, use_ma_filter, use_vix_filter, vix_threshold,
+              sma_col, ma_index_name, ma_days,
+              cagr_strategy, max_dd_strategy, trading_instrument)
+
+    return fig
 
 
 
@@ -245,14 +354,14 @@ if __name__ == "__main__":
     # optimal config
     cagr, max_dd, max_dd_date, params, long_entries = run_backtest(
         backtest_start_date='2012-01-01',
-        backtest_end_date=None, # to present
+        backtest_end_date=None,  # to present
         ma_index='^NDX',
         use_ma_filter=True,
         ma_days=200,
         use_vix_filter=False,
         vix_threshold=30.0,
         trading_instrument='QQQ',
-        display_chart='plotly'
+        display_chart='dash'
     )
     print("\n--- Function Return Values ---")
     print(f"Strategy Parameters: {params}")
