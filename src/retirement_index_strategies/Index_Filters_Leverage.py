@@ -206,14 +206,14 @@ def add_chart(fig, res,
     # Trace 1: Portfolio Equity (Log Scale recommended for growth curves)
     fig.add_trace(
         go.Scatter(x=res.index, y=res['Equity'], name=f"Strategy ({trading_instrument} + Filters)",
-                   line=dict(color='green', width=2), hoverinfo='none'),
+                   line=dict(color='green', width=2)),
         secondary_y=False, row=1, col=1
     )
 
     # Trace 2: SMA (Secondary Axis)
     fig.add_trace(
         go.Scatter(x=res.index, y=res[sma_col], name=f"{ma_index_name} {ma_days}-day SMA",
-                   line=dict(color='red', width=1), hoverinfo='none'),
+                   line=dict(color='red', width=1)),
         secondary_y=True, row=1, col=1
     )
 
@@ -225,17 +225,17 @@ def add_chart(fig, res,
                 low=res[f'{ma_index_name}_Low'],
                 close=res[f'{ma_index_name}_Close'],
                 name=f"{ma_index_name} Price",
-                opacity=0.5, hoverinfo='none'),
+                opacity=0.5),
         secondary_y=True, row=1, col=1
     )
 
     # --- Title Generation ---
-    title_line1 = f'Growth Strategy: {trading_instrument}'
+    title_line1 = f'Strategy: {trading_instrument}'
     if use_ma_filter:
-        title_line1 += f' with {ma_index_name} {ma_days}-SMA'
+        title_line1 += f' with {ma_index_name} {ma_days}-SMA filter'
     if use_vix_filter:
         title_line1 += f' & VIX < {vix_threshold} Filter'
-    title_line1 += f' ({backtest_start_date}-{backtest_end_date})'
+    title_line1 += f' Backtest period: {backtest_start_date} to -{backtest_end_date}'
 
     title_line2 = f"Strategy CAGR: {cagr_strategy:.2%}, Max DD: {max_dd_strategy:.2%}"
 
