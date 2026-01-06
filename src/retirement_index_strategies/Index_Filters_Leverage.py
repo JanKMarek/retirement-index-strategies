@@ -163,7 +163,7 @@ def create_plotly_figure(backtest_end_date: str | Any, backtest_start_date: str,
         vertical_spacing=0.1,
         row_heights=[0.5, 0.5],
         specs=[[{"secondary_y": True}], [{"type": "table"}]],
-        subplot_titles=("", "Strategy Monthly Returns")
+        subplot_titles=("", "")
     )
 
     add_chart(fig, res,
@@ -246,7 +246,7 @@ def add_chart(fig, res,
         yaxis_type="log",
         yaxis2_type="log",
         template="plotly_white",
-        hovermode="x",
+        hovermode="x unified",
         margin=dict(l=20, r=20, t=50, b=20),
         hoverlabel=dict(
             bgcolor="white",
@@ -304,11 +304,11 @@ def add_chart(fig, res,
         tickfont=dict(color='black'),
         row=1, col=1,
         tickvals=major_tickvals,
-        ticktext=major_ticktext,
-        spikemode='across',
-        spikesnap='cursor',
-        spikethickness=1,
-        spikecolor='black'
+        ticktext=major_ticktext
+        # spikemode='across',
+        # spikesnap='cursor',
+        # spikethickness=1,
+        # spikecolor='black'
     )
     return fig
 
@@ -386,7 +386,7 @@ def display_with_dash(backtest_end_date: str | Any, backtest_start_date: str, ca
 
     app.layout = html.Div([
         dcc.Graph(id='main-chart', figure=chart_fig, style={'height': '50vh'}),
-        html.H4("Strategy Monthly Returns", style={'color': 'black'}),
+        html.H4("", style={'color': 'black'}),
         dash_table.DataTable(
             id='returns-table',
             columns=columns,
