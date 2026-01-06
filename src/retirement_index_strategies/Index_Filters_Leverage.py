@@ -242,6 +242,11 @@ def add_chart(fig, res,
         template="plotly_white",
         hovermode="x unified",
         margin=dict(l=20, r=20, t=50, b=20),
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Rockwell"
+        ),
 
         # Set default font color to black for dropdown items, then override for other elements
         font_color="black",
@@ -263,7 +268,38 @@ def add_chart(fig, res,
         xaxis_rangeslider_visible=False
     )
     fig.update_annotations(font_color='black')
-    fig.update_xaxes(tickfont=dict(color='black'), row=1, col=1)
+
+    # --- X-axis Ticks Generation ---
+    major_tickvals = []
+    major_ticktext = []
+
+    # Monthly ticks
+    monthly_ticks = pd.date_range(res.index.min().to_period('M').to_timestamp(), res.index.max(), freq='MS')
+    for tick in monthly_ticks:
+        if tick.month == 1:
+            major_tickvals.append(tick)
+            major_ticktext.append(tick.strftime('%Y'))
+        else:
+            # Add minor ticks as annotations
+            fig.add_annotation(
+                x=tick,
+                y=0,
+                yref="paper",
+                showarrow=False,
+                text=tick.strftime('%b')[0],
+                textangle=0,
+                xanchor='center',
+                yanchor='top',
+                yshift=-10,  # Adjust this value for position
+                font=dict(color="black", size=10)
+            )
+
+    fig.update_xaxes(
+        tickfont=dict(color='black'),
+        row=1, col=1,
+        tickvals=major_tickvals,
+        ticktext=major_ticktext,
+    )
     return fig
 
 
@@ -411,14 +447,14 @@ def create_dash_figure(backtest_end_date: str | Any, backtest_start_date: str, c
 if __name__ == "__main__":
     # optimal config
     cagr, max_dd, max_dd_date, params, long_entries = run_backtest(
-        backtest_start_date='2012-01-01',
+        backtest_start_date='1999-01-01',
         backtest_end_date=None,  # to present
         ma_index='^NDX',
         use_ma_filter=True,
         ma_days=200,
         use_vix_filter=False,
         vix_threshold=30.0,
-        trading_instrument='QQQ',
+        trading_instrument='TQQQ',
         display_chart='dash'
     )
     print("\n--- Function Return Values ---")
