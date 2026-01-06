@@ -171,15 +171,21 @@ def create_plotly_figure(backtest_end_date: str | Any, backtest_start_date: str,
                  sma_col, ma_index_name, ma_days,
                  cagr_strategy, max_dd_strategy, trading_instrument)
 
-    returns_pivot = get_returns_pivot_df(res)
+    returns_pivot_numeric = get_returns_pivot_df(res)
+
+    # Format for plotly table
+    returns_pivot_str = returns_pivot_numeric.copy()
+    year_columns = [col for col in returns_pivot_str.columns if col != 'Month']
+    for col in year_columns:
+        returns_pivot_str[col] = returns_pivot_str[col].apply(lambda x: f'{x:.2%}' if pd.notna(x) else '')
 
     # Trace 4: Monthly Returns Table
     fig.add_trace(
         go.Table(
-            header=dict(values=['Month'] + list(returns_pivot.columns),
+            header=dict(values=list(returns_pivot_str.columns),
                         fill_color='paleturquoise',
                         align='left'),
-            cells=dict(values=[returns_pivot.index] + [returns_pivot[col] for col in returns_pivot.columns],
+            cells=dict(values=[returns_pivot_str[col] for col in returns_pivot_str.columns],
                        fill_color='white',
                        align='left')
         ),
@@ -200,14 +206,14 @@ def add_chart(fig, res,
     # Trace 1: Portfolio Equity (Log Scale recommended for growth curves)
     fig.add_trace(
         go.Scatter(x=res.index, y=res['Equity'], name=f"Strategy ({trading_instrument} + Filters)",
-                   line=dict(color='green', width=2)),
+                   line=dict(color='green', width=2), hoverinfo='none'),
         secondary_y=False, row=1, col=1
     )
 
     # Trace 2: SMA (Secondary Axis)
     fig.add_trace(
         go.Scatter(x=res.index, y=res[sma_col], name=f"{ma_index_name} {ma_days}-day SMA",
-                   line=dict(color='red', width=1)),
+                   line=dict(color='red', width=1), hoverinfo='none'),
         secondary_y=True, row=1, col=1
     )
 
@@ -219,7 +225,7 @@ def add_chart(fig, res,
                 low=res[f'{ma_index_name}_Low'],
                 close=res[f'{ma_index_name}_Close'],
                 name=f"{ma_index_name} Price",
-                opacity=0.5),
+                opacity=0.5, hoverinfo='none'),
         secondary_y=True, row=1, col=1
     )
 
@@ -240,7 +246,7 @@ def add_chart(fig, res,
         yaxis_type="log",
         yaxis2_type="log",
         template="plotly_white",
-        hovermode="x unified",
+        hovermode="x",
         margin=dict(l=20, r=20, t=50, b=20),
         hoverlabel=dict(
             bgcolor="white",
@@ -299,6 +305,10 @@ def add_chart(fig, res,
         row=1, col=1,
         tickvals=major_tickvals,
         ticktext=major_ticktext,
+        spikemode='across',
+        spikesnap='cursor',
+        spikethickness=1,
+        spikecolor='black'
     )
     return fig
 
@@ -319,10 +329,7 @@ def get_returns_pivot_df(res):
                                      columns=returns_pivot.columns)
 
     # Combine and keep numeric values for coloring
-    returns_pivot_numeric = pd.concat([returns_pivot, annual_return_row])
-
-    # Format numeric returns to string for display
-    returns_pivot = returns_pivot_numeric.applymap(lambda x: f'{x:.2%}' if pd.notna(x) else '')
+    returns_pivot = pd.concat([returns_pivot, annual_return_row])
 
     returns_pivot.index = returns_pivot.index.map(MONTH_MAP)
 
@@ -349,19 +356,48 @@ def display_with_dash(backtest_end_date: str | Any, backtest_start_date: str, ca
 
     app = dash.Dash(__name__)
 
+    style_data_conditional = []
+    # returns_pivot_df can have non-numeric 'Month' column.
+    year_columns = [c for c in returns_pivot_df.columns if c != 'Month']
+
+    for col in year_columns:
+        style_data_conditional.extend([
+            {
+                'if': {'filter_query': f'{{{col}}} > 0.05', 'column_id': str(col)},
+                'backgroundColor': 'lightgreen',
+                'color': 'black'
+            },
+            {
+                'if': {'filter_query': f'{{{col}}} < -0.05', 'column_id': str(col)},
+                'backgroundColor': 'lightcoral',
+                'color': 'black'
+            }
+        ])
+
+    columns = [{'name': 'Month', 'id': 'Month', 'type': 'text'}]
+    columns.extend([
+        {
+            'name': str(col),
+            'id': str(col),
+            'type': 'numeric',
+            'format': {'specifier': '.2%'}
+        } for col in year_columns
+    ])
+
     app.layout = html.Div([
         dcc.Graph(id='main-chart', figure=chart_fig, style={'height': '50vh'}),
-        html.H4("Strategy Monthly Returns", style={'color': 'white', 'padding-top': '20px'}),
+        html.H4("Strategy Monthly Returns", style={'color': 'black'}),
         dash_table.DataTable(
             id='returns-table',
-            columns=[{"name": str(i), "id": str(i)} for i in returns_pivot_df.columns],
+            columns=columns,
             data=returns_pivot_df.to_dict('records'),
-            style_cell={'textAlign': 'left', 'backgroundColor': 'rgb(50, 50, 50)', 'color': 'white'},
+            style_cell={'textAlign': 'left', 'backgroundColor': 'white', 'color': 'black'},
             style_header={
                 'backgroundColor': 'rgb(30, 30, 30)',
-                'fontWeight': 'bold'
+                'fontWeight': 'bold',
+                'color': 'white'
             },
-            style_data_conditional=[]
+            style_data_conditional=style_data_conditional
         )
     ])
 
@@ -370,20 +406,37 @@ def display_with_dash(backtest_end_date: str | Any, backtest_start_date: str, ca
         Output('returns-table', 'style_data_conditional'),
         Input('returns-table', 'active_cell'),
         State('main-chart', 'figure'),
-        State('returns-table', 'data')
+        State('returns-table', 'data'),
+        State('returns-table', 'columns')
     )
-    def update_on_cell_click(active_cell, current_figure, table_data):
+    def update_on_cell_click(active_cell, current_figure, table_data, table_columns):
+        # Recreate base style
+        year_columns = [c['id'] for c in table_columns if c['id'] != 'Month']
+        style_data_conditional = []
+        for col in year_columns:
+            style_data_conditional.extend([
+                {
+                    'if': {'filter_query': f'{{{col}}} > 0.05', 'column_id': str(col)},
+                    'backgroundColor': 'lightgreen',
+                    'color': 'black'
+                },
+                {
+                    'if': {'filter_query': f'{{{col}}} < -0.05', 'column_id': str(col)},
+                    'backgroundColor': 'lightcoral',
+                    'color': 'black'
+                }
+            ])
+
         if not active_cell:
-            return current_figure, []
+            return current_figure, style_data_conditional
 
         row = active_cell['row']
         col_id = active_cell['column_id']
         month_name = table_data[row]['Month']
 
         # Style for highlighted cell
-        style = []
         if col_id != 'Month':
-            style.append({
+            style_data_conditional.append({
                 'if': {'row_index': row, 'column_id': col_id},
                 'backgroundColor': 'yellow',
                 'color': 'black'
@@ -393,7 +446,7 @@ def display_with_dash(backtest_end_date: str | Any, backtest_start_date: str, ca
         if col_id == 'Month' or month_name == 'Annual':
             if 'shapes' in current_figure['layout']:
                 current_figure['layout']['shapes'] = []
-            return current_figure, style
+            return current_figure, style_data_conditional
 
         try:
             year = int(col_id)
@@ -421,7 +474,7 @@ def display_with_dash(backtest_end_date: str | Any, backtest_start_date: str, ca
                 current_figure['layout']['shapes'] = []
 
 
-        return current_figure, style
+        return current_figure, style_data_conditional
 
     app.run(debug=True)
 
